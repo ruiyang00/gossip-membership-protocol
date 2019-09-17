@@ -1,0 +1,2 @@
+/Users/ruiyang/Documents/Specialization in Cloud/dsitrbuted system-1/mp1/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/ruiyang/Documents/Specialization in Cloud/dsitrbuted system-1/mp1/cmake-build-debug/CMakeFiles/edit_cache.dir
