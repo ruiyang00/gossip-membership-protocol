@@ -216,6 +216,56 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
     /*
      * Your code goes here
      */
+    MessageHdr *receivedMsg = (MessageHdr *) malloc(size * sizeof(char));
+    memcpy(receivedMsg, data, sizeof(MessageHdr));
+
+    if (receivedMsg->msgType == JOINREQ) {
+
+        // Read message data
+        int id;
+        short port;
+        long heartbeat;
+        memcpy(&id, data + sizeof(MessageHdr), sizeof(int));
+        memcpy(&port, data + sizeof(MessageHdr) + sizeof(int), sizeof(short));
+        memcpy(&heartbeat, data + sizeof(MessageHdr) + sizeof(int) + sizeof(short), sizeof(long));
+
+        // Create new membership entry and add to the membership list of the node
+        addNodeToMemberListTable(id, port, heartbeat, memberNode->timeOutCounter);
+
+        // Send JOINREP message
+        Address newNodeAddress = getNodeAddress(id, port);
+
+        sendJOINREPMessage(&newNodeAddress);
+    } else if (receivedMsg->msgType == JOINREP) {
+
+        // Mark node as added to the group
+        memberNode->inGroup = true;
+
+        // Deserialize member list and add items to the membership list of the node
+        deserializeMemberListTableForJOINREPMessageReceiving(data);
+    } else if (receivedMsg->msgType == HEARTBEAT) {
+
+        // Read message data
+        int id;
+        short port;
+        long heartbeat;
+        memcpy(&id, data + sizeof(MessageHdr), sizeof(int));
+        memcpy(&port, data + sizeof(MessageHdr) + sizeof(int), sizeof(short));
+        memcpy(&heartbeat, data + sizeof(MessageHdr) + sizeof(int) + sizeof(short), sizeof(long));
+
+        if (!existsNodeInMemberListTable(id)) {
+            // Create new membership entry and add to the membership list of the node
+            addNodeToMemberListTable(id, port, heartbeat, memberNode->timeOutCounter);
+        } else {
+            // Update the membership entry
+            MemberListEntry *node = getNodeInMemberListTable(id);
+
+            node->setheartbeat(heartbeat);
+            node->settimestamp(memberNode->timeOutCounter);
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -227,13 +277,54 @@ bool MP1Node::recvCallBack(void *env, char *data, int size) {
  */
 void MP1Node::nodeLoopOps() {
 
-    std::count << "Hello word";
-
     /*
      * Your code goes here
      */
+    // Check if node should send a new heartbeat
+    if (memberNode->pingCounter == 0) {
+        // Increment number of heartbeats
+        memberNode->heartbeat++;
 
+        // Send heartbeat messages to all nodes
+        for (std::vector<MemberListEntry>::iterator it = memberNode->memberList.begin();
+             it != memberNode->memberList.end(); ++it) {
+            Address nodeAddress = getNodeAddress(it->id, it->getport());
 
+            if (!isAddressEqualToNodeAddress(&nodeAddress)) {
+                sendHEARTBEATMessage(&nodeAddress);
+            }
+        }
+
+        // Reset ping counter
+        memberNode->pingCounter = TFAIL;
+    } else {
+        // Decrement ping counter
+        memberNode->pingCounter--;
+    }
+
+    // Check if any node has failed
+    for (std::vector<MemberListEntry>::iterator it = memberNode->memberList.begin();
+         it != memberNode->memberList.end(); ++it) {
+        Address nodeAddress = getNodeAddress(it->id, it->getport());
+
+        if (!isAddressEqualToNodeAddress(&nodeAddress)) {
+            // If the difference between overall timeOutCounter and the node timestamp
+            // is greater than TREMOVE then remove node from membership list
+            if (memberNode->timeOutCounter - it->timestamp > TREMOVE) {
+                // Remove node from membership list
+                memberNode->memberList.erase(it);
+
+#ifdef DEBUGLOG
+                log->logNodeRemove(&memberNode->addr, &nodeAddress);
+#endif
+
+                break;
+            }
+        }
+    }
+
+    // Increment overall counter
+    memberNode->timeOutCounter++;
 
     return;
 }
